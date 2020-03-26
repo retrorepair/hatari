@@ -38,6 +38,16 @@ const char FDC_fileid[] = "Hatari fdc.c : " __DATE__ " " __TIME__;
 #include "clocks_timings.h"
 #include "utils.h"
 #include "statusbar.h"
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <sys/ioctl.h>
 
 
 /*
@@ -1281,8 +1291,9 @@ void	FDC_InsertFloppy ( int Drive )
 	if ( ( Drive >= 0 ) && ( Drive < MAX_FLOPPYDRIVES ) )
 	{
 		FDC_DRIVES[ Drive ].DiskInserted = true;
-		if ( ( FDC.STR & FDC_STR_BIT_MOTOR_ON ) != 0 )		/* If we insert a floppy while motor is already on, we must */
+		if ( ( FDC.STR & FDC_STR_BIT_MOTOR_ON ) != 0 ){		/* If we insert a floppy while motor is already on, we must */
 			FDC_IndexPulse_Init ( Drive );			/* init the index pulse's position */
+			}
 		else
 			FDC_DRIVES[ Drive ].IndexPulse_Time = 0;	/* Index pulse's position not known yet */
 		FDC_DRIVES[ Drive ].Density = FDC_GetDensity ( Drive );
@@ -1837,6 +1848,9 @@ static void FDC_Update_STR ( Uint8 DisableBits , Uint8 EnableBits )
 	FDC.STR |= EnableBits;						/* Set bits in EnableBits */
 
 	FDC_Drive_Set_BusyLed ( FDC.STR );
+	
+		
+	
 //fprintf ( stderr , "fdc str 0x%x\n" , FDC.STR );
 }
 
@@ -1947,7 +1961,10 @@ static int FDC_UpdateMotorStop ( void )
 			FdcCycles = FDC_DELAY_CYCLE_REFRESH_INDEX_PULSE;	/* Wait for the correct number of IP */
 			break;
 		}
-		/* If IndexPulse_Counter reached, we go directly to the _COMPLETE state */
+		/* If IndexPulse_Counter reached, we go directly to the _COMPLETE state */			
+				
+			
+			
 	 case FDCEMU_RUN_MOTOR_STOP_COMPLETE:
 		Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 		LOG_TRACE(TRACE_FDC, "fdc motor stopped VBL=%d video_cyc=%d %d@%d pc=%x\n",
@@ -1959,7 +1976,16 @@ static int FDC_UpdateMotorStop ( void )
 
 		FDC_Update_STR ( FDC_STR_BIT_MOTOR_ON , 0 );		/* Unset motor bit and keep spin up bit */
 		FDC.Command = FDCEMU_CMD_NULL;				/* Motor stopped, this is the last state */
-		FdcCycles = 0;
+		
+		
+			FILE *file;
+    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	fprintf(file,"%d",1); //Writing to the file (motor off)
+    		fclose(file); //end of serial output		
+		
+		
+		FdcCycles = 0;		
+		
 		break;
 	}
 	return FdcCycles;
@@ -2002,7 +2028,6 @@ static int FDC_UpdateRestoreCmd ( void )
 	 case FDCEMU_RUN_RESTORE_SEEKTOTRACKZERO_MOTOR_ON:
 		FDC_Update_STR ( 0 , FDC_STR_BIT_SPIN_UP );		/* At this point, spin up sequence is ok */
 		FDC.ReplaceCommandPossible = false;
-
 		/* The FDC will try 255 times to reach track 0 using step out signals */
 		/* If track 0 signal is not detected after 255 attempts, the command is interrupted */
 		/* and FDC_STR_BIT_RNF is set in the Status Register. */
@@ -3150,17 +3175,26 @@ static bool FDC_Set_MotorON ( Uint8 FDC_CR )
 		FDC_Update_STR ( FDC_STR_BIT_SPIN_UP , 0 );		/* Unset spin up bit */
 		FDC.IndexPulse_Counter = 0;				/* Reset counter to measure the spin up sequence */
 		SpinUp = true;
+		
+		
+			FILE *file;
+    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	fprintf(file,"%d",2); //Writing to the file (motor on)
+    		fclose(file); //end of serial output
+		
+		
 	}
 	else								/* No spin up : don't add delay to start the motor */
 	{
-		LOG_TRACE(TRACE_FDC, "fdc start motor without spinup VBL=%d video_cyc=%d %d@%d pc=%x\n",
+	
+			LOG_TRACE(TRACE_FDC, "fdc start motor without spinup VBL=%d video_cyc=%d %d@%d pc=%x\n",
 			nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 		SpinUp = false;
 	}
 
 	FDC_Update_STR ( 0 , FDC_STR_BIT_MOTOR_ON );			/* Start motor */
-
+	
 	if ( ( FDC.DriveSelSignal < 0 ) || ( !FDC_DRIVES[ FDC.DriveSelSignal ].Enabled )
 		|| ( !FDC_DRIVES[ FDC.DriveSelSignal ].DiskInserted ) )
 	{
@@ -3171,7 +3205,11 @@ static bool FDC_Set_MotorON ( Uint8 FDC_CR )
 		FDC_IndexPulse_Init ( FDC.DriveSelSignal );		/* Index Pulse's position is random when motor starts */
 	
 	return SpinUp;
+
+
+
 }
+
 
 
 /*-----------------------------------------------------------------------*/
@@ -3274,8 +3312,14 @@ static int FDC_TypeI_StepIn(void)
 	FDC.Command = FDCEMU_CMD_STEP;
 	FDC.CommandState = FDCEMU_RUN_STEP_ONCE;
 	FDC.StepDirection = 1;						/* Increment track*/
-
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
+	
+	
+			//FILE *file;
+    		//file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	//fprintf(file,"%d",3); //Writing to the file
+    		//fclose(file); //end of serial output	
+	
 
 	return FDC_DELAY_CYCLE_TYPE_I_PREPARE;
 }
@@ -3299,8 +3343,16 @@ static int FDC_TypeI_StepOut ( void )
 	FDC.Command = FDCEMU_CMD_STEP;
 	FDC.CommandState = FDCEMU_RUN_STEP_ONCE;
 	FDC.StepDirection = -1;						/* Decrement track */
-
 	FDC_Update_STR ( FDC_STR_BIT_INDEX | FDC_STR_BIT_CRC_ERROR | FDC_STR_BIT_RNF , FDC_STR_BIT_BUSY );
+	
+	
+
+			//FILE *file;
+    		//file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	//fprintf(file,"%d",4); //Writing to the file
+    		//fclose(file); //end of serial output		
+	
+	
 
 	return FDC_DELAY_CYCLE_TYPE_I_PREPARE;
 }
@@ -3476,7 +3528,8 @@ static int FDC_TypeIV_ForceInterrupt ( void )
 		FDC.StatusTypeI = true;
 
 		/* Starting a Force Int command when idle should set the motor bit and clear the spinup bit (verified on STF) */
-		FDC_Update_STR ( FDC_STR_BIT_SPIN_UP , FDC_STR_BIT_MOTOR_ON );	/* Clear spinup bit and set motor bit */
+		FDC_Update_STR ( FDC_STR_BIT_SPIN_UP , FDC_STR_BIT_MOTOR_ON );	/* Clear spinup bit and set motor bit */		
+		
 	}
 
 	/* Get the interrupt's condition and set IRQ accordingly */
