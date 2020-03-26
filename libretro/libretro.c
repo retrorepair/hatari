@@ -197,8 +197,8 @@ static void update_variables(void)
    switch(video_config)
    {
 		case HATARI_VIDEO_OV_LO:
-			retrow = 416;
-			retroh = 260;
+			retrow = 400;
+			retroh = 274;
 			hatari_borders = true;
 			break;
 		case HATARI_VIDEO_CR_LO:
